@@ -6,6 +6,7 @@ interface ResultCardProps {
   hit: Hit;
   selected?: boolean;
   onSelect?: (id: string) => void;
+  onOpenDetail?: (hit: Hit) => void;
 }
 
 const CIRCLE_DIAMETER = 72;
@@ -14,11 +15,15 @@ const CIRCLE_CENTER_OFFSET = CIRCLE_DIAMETER * (VISIBLE_FRACTION - 0.5); // shif
 const VISIBLE_WIDTH = CIRCLE_DIAMETER * VISIBLE_FRACTION;
 const CONTENT_LEFT_INSET = VISIBLE_WIDTH + 12; // visible portion + gap before text
 
-export default function ResultCard({ hit, selected, onSelect }: ResultCardProps) {
+export default function ResultCard({ hit, selected, onSelect, onOpenDetail }: ResultCardProps) {
   return (
-    <button
+    <div
       onClick={() => onSelect?.(hit.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onSelect?.(hit.id)}
       style={{
+        boxSizing: "border-box", // otherwise the left padding pushes the card past 100% width, off-screen
         position: "relative",
         display: "flex",
         alignItems: "center",
@@ -90,9 +95,24 @@ export default function ResultCard({ hit, selected, onSelect }: ResultCardProps)
         </div>
       </div>
 
-      <span aria-hidden style={{ color: tokens.accent, fontSize: 18, paddingRight: 4 }}>
+      <button
+        aria-label={`View nutrition facts for ${hit.name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenDetail?.(hit);
+        }}
+        style={{
+          flexShrink: 0,
+          color: tokens.accent,
+          fontSize: 18,
+          padding: "4px 4px 4px 8px",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
         ›
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }

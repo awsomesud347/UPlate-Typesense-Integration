@@ -10,6 +10,7 @@ interface ResultsSheetProps {
   interpretedIntent?: string;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  onOpenDetail?: (hit: Hit) => void;
   visible: boolean; // false before the first search — sheet is fully hidden, not peeking
 }
 
@@ -25,6 +26,7 @@ export default function ResultsSheet({
   interpretedIntent,
   selectedId,
   onSelect,
+  onOpenDetail,
   visible,
 }: ResultsSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -155,6 +157,7 @@ export default function ResultsSheet({
             hit={hit}
             selected={hit.id === selectedId}
             onSelect={onSelect}
+            onOpenDetail={onOpenDetail}
           />
         ))}
       </div>

@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
     campus_id: str = "purdue"
 
+    # UPlate already queries dining courts and On the Gos natively. This search
+    # product covers the retail/off-campus half, which is the part that doesn't
+    # exist anywhere else. Applied as a QUERY-TIME filter, not by removing data:
+    # set false to search dining courts too, no reindex needed.
+    retail_only: bool = True
+
     # Dev-only escape hatch so frontend work doesn't require a running Typesense.
     # Opt-in and off by default: fixture data does NOT honor allergen exclusions,
     # so a silent fallback would violate the safety invariant. Responses served

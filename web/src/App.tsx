@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { api, demoContext } from "./lib/api";
-import type { SearchResponse } from "./lib/types";
+import type { Hit, SearchResponse } from "./lib/types";
 import { tokens } from "./lib/tokens";
 import PhoneFrame from "./components/PhoneFrame";
 import SearchBar from "./components/SearchBar";
 import ItemMap from "./components/ItemMap";
 import ResultsSheet from "./components/ResultsSheet";
+import NutritionFacts from "./components/NutritionFacts";
 
 export default function App() {
   const [query, setQuery] = useState("");
@@ -13,6 +14,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailHit, setDetailHit] = useState<Hit | null>(null);
 
   async function runSearch() {
     setLoading(true);
@@ -63,8 +65,17 @@ export default function App() {
         interpretedIntent={result?.reasoning.interpreted_intent}
         selectedId={selectedId}
         onSelect={setSelectedId}
+        onOpenDetail={setDetailHit}
         visible={result !== null}
       />
+
+      {detailHit && (
+        <NutritionFacts
+          hit={detailHit}
+          onClose={() => setDetailHit(null)}
+          onLogFood={() => setError("Logging isn't wired up yet.")}
+        />
+      )}
     </PhoneFrame>
   );
 }
