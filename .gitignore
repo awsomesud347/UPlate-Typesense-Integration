@@ -21,6 +21,9 @@ typesense-data/
 *.sqlite
 *.db
 
+# local-only docs
+Guidelines.MD
+
 # os / editor
 .DS_Store
 Thumbs.db
