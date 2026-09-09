@@ -161,24 +161,5 @@ export default function ItemMap({ hits, selectedId, onSelect }: ItemMapProps) {
     });
   }, [selectedId, hits]);
 
-  return (
-    <div ref={containerRef} style={{ position: "relative", width: "100%", height: "100%" }}>
-      <span
-        style={{
-          position: "absolute",
-          top: 8,
-          left: 8,
-          zIndex: 1,
-          fontSize: 10,
-          color: tokens.textSecondary,
-          background: tokens.surface,
-          border: `1px solid ${tokens.outline}`,
-          padding: "2px 6px",
-          borderRadius: 4,
-        }}
-      >
-        pins are illustrative, not exact locations
-      </span>
-    </div>
-  );
+  return <div ref={containerRef} style={{ position: "relative", width: "100%", height: "100%" }} />;
 }
