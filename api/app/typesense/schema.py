@@ -12,6 +12,9 @@ def food_items_schema(version: int) -> dict:
             {"name": "description", "type": "string"},
             {"name": "venue_name", "type": "string", "facet": True},
             {"name": "venue_id", "type": "string", "facet": True},
+            # Dining-hall serving station ("Grill", "Sizzling Salads"). The live
+            # UPlate app groups and reorders by this, so it is a first-class field.
+            {"name": "station", "type": "string", "facet": True, "optional": True},
             {"name": "source_type", "type": "string", "facet": True},  # dining_hall | off_campus
             {"name": "campus_id", "type": "string", "facet": True},
             {"name": "location", "type": "geopoint"},
@@ -23,6 +26,15 @@ def food_items_schema(version: int) -> dict:
             {"name": "fat_g", "type": "float"},
             {"name": "fiber_g", "type": "float"},
             {"name": "sodium_mg", "type": "int32"},
+            # Full nutrient set matching the live UPlate app's Filter & Sort panel.
+            # Sparse in seed data; normalize() defaults them to 0 so every doc is
+            # sortable on every axis.
+            {"name": "sugar_g", "type": "float"},
+            {"name": "saturated_fat_g", "type": "float"},
+            {"name": "added_sugars_g", "type": "float"},
+            {"name": "cholesterol_mg", "type": "float"},
+            {"name": "calcium_mg", "type": "float"},
+            {"name": "iron_mg", "type": "float"},
             # --- hard: exclusion inputs ---
             {"name": "allergens", "type": "string[]", "facet": True},
             {"name": "diet_flags", "type": "string[]", "facet": True},

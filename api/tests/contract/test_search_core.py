@@ -56,6 +56,16 @@ def found(query: str, c: UserContext, **kw) -> int:
     return result(query, c, **kw).get("found", 0)
 
 
+def _by_bucket(hit_list: list[dict]) -> dict[int, list[tuple[dict, float]]]:
+    """Group hits by their 1-mile distance bucket, matching the precision used in
+    sort_by. Ordering guarantees hold within a bucket, not across buckets."""
+    out: dict[int, list[tuple[dict, float]]] = {}
+    for h in hit_list:
+        meters = h.get("geo_distance_meters", {}).get("location", 0)
+        out.setdefault(int(meters / 1609.34), []).append((h["document"], meters))
+    return out
+
+
 def names(query: str, c: UserContext, **kw) -> list[str]:
     return [h["document"]["name"] for h in hits(query, c, **kw)]
 
@@ -67,9 +77,27 @@ def test_keyword_match():
 def test_hybrid_semantic_match():
     """THE HYBRID PROOF. 'warm and comforting' must surface soups/stews even
     though neither word appears in those documents. Fails if query_by omits
-    the embedding field."""
+    the embedding field.
+
+    Sorted by relevance only: with a geo sort in front, this would be testing
+    the distance bucket rather than retrieval quality."""
     assert "embedding" in QUERY_BY
-    result = names("something warm and comforting", ctx())
+    res = admin_client().multi_search.perform(
+        {
+            "searches": [
+                {
+                    "collection": "food_items",
+                    "q": "something warm and comforting",
+                    "query_by": QUERY_BY,
+                    "vector_query": "embedding:([], alpha: 0.3)",
+                    "exclude_fields": "embedding",
+                    "per_page": 10,
+                }
+            ]
+        },
+        {},
+    )["results"][0]
+    result = [h["document"]["name"] for h in res.get("hits", [])]
     comfort = {"Creamy Tomato Basil Soup", "Hearty Lentil Stew", "Cheesestix"}
     assert comfort & set(result[:5]), (
         f"No comfort food in top 5 — hybrid search may be keyword-only. Got: {result[:5]}"
@@ -94,19 +122,18 @@ def test_geo_bucketing_lets_goal_break_the_tie():
     axis breaks it. Assert the ordering property directly: within that bucket,
     protein_density must be non-increasing — meaning a farther-but-higher-protein
     item legitimately outranks a nearer, lower-protein one."""
-    within_mile = [
-        h for h in hits("*", ctx(goal="high_protein"))
-        if h.get("geo_distance_meters", {}).get("location", 0) <= 1609
-    ]
-    assert len(within_mile) >= 3, "not enough nearby items to test bucketing"
+    buckets = _by_bucket(hits("*", ctx(goal="high_protein")))
+    biggest = max(buckets.values(), key=len)
+    assert len(biggest) >= 3, "not enough items in one bucket to test ordering"
 
-    densities = [h["document"]["protein_density"] for h in within_mile]
+    densities = [d["protein_density"] for d, _ in biggest]
     assert densities == sorted(densities, reverse=True), (
         f"Distance bucket is not ordered by protein_density: {densities}"
     )
 
-    # And prove the tie is real: the bucket spans a range of actual distances.
-    dists = [h["geo_distance_meters"]["location"] for h in within_mile]
+    # Prove the tie is real: the bucket spans a range of actual distances, so a
+    # farther-but-higher-protein item genuinely outranks a nearer, weaker one.
+    dists = [m for _, m in biggest]
     assert max(dists) > min(dists), "all items equidistant; bucketing untested"
 
 
@@ -118,11 +145,9 @@ def test_availability_window():
 
 def test_light_goal_sorts_by_calories():
     """Within the nearby distance bucket, calories must be non-decreasing."""
-    within_mile = [
-        h for h in hits("*", ctx(goal="light"))
-        if h.get("geo_distance_meters", {}).get("location", 0) <= 1609
-    ]
-    cals = [h["document"]["calories"] for h in within_mile]
+    buckets = _by_bucket(hits("*", ctx(goal="light")))
+    biggest = max(buckets.values(), key=len)
+    cals = [d["calories"] for d, _ in biggest]
     assert cals == sorted(cals), f"'light' goal did not sort by calories: {cals}"
 
 
