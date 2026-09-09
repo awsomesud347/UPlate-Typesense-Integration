@@ -21,6 +21,9 @@ const ZOOM = 2.2;
 // Where the selected point should land: horizontally centered, near the TOP of
 // the map area so it stays visible above the results sheet once it opens.
 const TARGET = { leftPct: 54, topPct: 12 };
+// The user's own location — fixed at the center of the (untransformed) map,
+// like any other map-space point it pans/zooms along with everything else.
+const YOU_POSITION = { leftPct: 50, topPct: 50 };
 
 export default function ItemMap({ hits, selectedId, onSelect }: ItemMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,6 +66,23 @@ export default function ItemMap({ hits, selectedId, onSelect }: ItemMapProps) {
           background: `repeating-linear-gradient(45deg, ${tokens.surfaceMuted}, ${tokens.surfaceMuted} 12px, ${tokens.background} 12px, ${tokens.background} 24px)`,
         }}
       >
+        {/* "you are here" — fixed reference point, not selectable */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: `${YOU_POSITION.leftPct}%`,
+            top: `${YOU_POSITION.topPct}%`,
+            transform: `translate(-50%, -50%) scale(${1 / transform.scale})`,
+            width: 14,
+            height: 14,
+            borderRadius: "50%",
+            background: "#4A9DFF",
+            border: "2px solid white",
+            boxShadow: "0 0 0 6px rgba(74,157,255,0.25)",
+          }}
+        />
+
         {hits.map((hit) => {
           const pos = pinPosition(hit.id);
           const isSelected = hit.id === selectedId;

@@ -8,13 +8,18 @@ interface ResultCardProps {
   onSelect?: (id: string) => void;
 }
 
-const IMAGE_SIZE = 64;
+const CIRCLE_DIAMETER = 72;
+const VISIBLE_FRACTION = 0.68; // how much of the circle's width shows past the card edge
+const CIRCLE_CENTER_OFFSET = CIRCLE_DIAMETER * (VISIBLE_FRACTION - 0.5); // shift center rightward
+const VISIBLE_WIDTH = CIRCLE_DIAMETER * VISIBLE_FRACTION;
+const CONTENT_LEFT_INSET = VISIBLE_WIDTH + 12; // visible portion + gap before text
 
 export default function ResultCard({ hit, selected, onSelect }: ResultCardProps) {
   return (
     <button
       onClick={() => onSelect?.(hit.id)}
       style={{
+        position: "relative",
         display: "flex",
         alignItems: "center",
         gap: 12,
@@ -23,22 +28,26 @@ export default function ResultCard({ hit, selected, onSelect }: ResultCardProps)
         background: tokens.surface,
         border: `1px solid ${selected ? tokens.accent : tokens.outline}`,
         borderRadius: 16,
-        padding: "8px 12px",
+        padding: `10px 12px 10px ${CONTENT_LEFT_INSET}px`,
         cursor: "pointer",
         fontFamily: tokens.font,
+        overflow: "hidden", // crops the circle at the card's left edge
       }}
     >
-      {/* image placeholder: straight edge on the left, filled semicircle bulge on
-          the right, inset within the card's border on all sides — real thumbnail
-          wiring is a later phase */}
+      {/* a full circle shifted so most of its width shows past the card's left
+          edge — the card's own overflow:hidden clips the rest away. Real
+          thumbnail wiring is a later phase. */}
       <div
         aria-hidden
         style={{
-          width: IMAGE_SIZE,
-          height: IMAGE_SIZE,
+          position: "absolute",
+          left: CIRCLE_CENTER_OFFSET,
+          top: "50%",
+          width: CIRCLE_DIAMETER,
+          height: CIRCLE_DIAMETER,
+          transform: "translate(-50%, -50%)",
+          borderRadius: "50%",
           flexShrink: 0,
-          borderTopRightRadius: IMAGE_SIZE / 2,
-          borderBottomRightRadius: IMAGE_SIZE / 2,
           background: PROVENANCE_COLORS[hit.provenance],
           display: "flex",
           alignItems: "center",
