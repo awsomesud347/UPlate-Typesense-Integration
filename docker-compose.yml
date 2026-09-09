@@ -1,0 +1,17 @@
+services:
+  typesense:
+    image: typesense/typesense:30.2
+    restart: on-failure
+    ports:
+      - "8108:8108"
+    volumes:
+      # named volume: built-in embedding models download here and are large.
+      # tmpfs would mean re-downloading them on every restart.
+      - typesense-data:/data
+    command: >
+      --data-dir /data
+      --api-key ${TYPESENSE_ADMIN_API_KEY:-uplate-dev-key}
+      --enable-cors
+
+volumes:
+  typesense-data:

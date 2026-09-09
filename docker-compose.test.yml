@@ -1,0 +1,14 @@
+services:
+  typesense-test:
+    image: typesense/typesense:30.2
+    ports:
+      - "8109:8108"
+    volumes:
+      - typesense-test-data:/data
+    command: >
+      --data-dir /data
+      --api-key test-key
+      --enable-cors
+
+volumes:
+  typesense-test-data:
