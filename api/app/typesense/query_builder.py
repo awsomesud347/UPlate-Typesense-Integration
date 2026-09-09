@@ -7,6 +7,7 @@ Layering (see BUILD_PLAN.md §4):
   - multi_search: search 1 = gated query, search 2 = same minus the provenance
     gate, per_page 0 — its found-count diff is the withheld count
 """
+from app.config import get_settings
 from app.constraints.exclusions import exclusion_fragments, has_hard_exclusions
 from app.constraints.goals import goal_sort
 from app.constraints.provenance import VERIFICATION_GATE
@@ -28,6 +29,8 @@ def build_filter_by(
         f"campus_id:={ctx.campus_id}",
         f"location:({ctx.lat}, {ctx.lng}, {radius} mi)",
     ]
+    if get_settings().retail_only:
+        frags.append("source_type:=off_campus")
     if with_availability:
         frags.append(f"available_from:<={ctx.now_minutes}")
         frags.append(f"available_to:>={ctx.now_minutes}")

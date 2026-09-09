@@ -17,6 +17,16 @@ router = APIRouter()
 COLLECTION = "food_items"
 
 
+def _scope(campus_id: str | None) -> str:
+    """Campus + the retail-only scope, so browse endpoints show the same universe
+    that search does."""
+    cid = campus_id or get_settings().campus_id
+    f = f"campus_id:={cid}"
+    if get_settings().retail_only:
+        f += " && source_type:=off_campus"
+    return f
+
+
 def _search(params: dict) -> dict:
     try:
         res = admin_client().multi_search.perform(
@@ -40,12 +50,11 @@ def _facet_counts(res: dict, field: str) -> list[dict]:
 def facets(campus_id: str | None = None) -> dict:
     """Everything the UI needs to build filter chips, sourced from live data so
     the options can never drift from what is actually in the index."""
-    cid = campus_id or get_settings().campus_id
     res = _search(
         {
             "q": "*",
             "query_by": "name",
-            "filter_by": f"campus_id:={cid}",
+            "filter_by": _scope(campus_id),
             "facet_by": "tags,allergens,diet_flags,station,venue_name,source_type,provenance",
             "max_facet_values": 100,
             "per_page": 0,
@@ -69,12 +78,11 @@ def facets(campus_id: str | None = None) -> dict:
 def venues(campus_id: str | None = None) -> dict:
     """Venue list with item counts. One doc per venue is fetched to recover the
     venue's coordinates and type, which facets alone don't carry."""
-    cid = campus_id or get_settings().campus_id
     res = _search(
         {
             "q": "*",
             "query_by": "name",
-            "filter_by": f"campus_id:={cid}",
+            "filter_by": _scope(campus_id),
             "facet_by": "venue_id",
             "max_facet_values": 200,
             "per_page": 250,

@@ -138,9 +138,10 @@ def test_geo_bucketing_lets_goal_break_the_tie():
 
 
 def test_availability_window():
-    """Breakfast-only oatmeal is served 06:30-10:30; invisible at noon."""
-    assert "Steel-Cut Oatmeal with Berries" in names("oatmeal", ctx(now_minutes=480))
-    assert "Steel-Cut Oatmeal with Berries" not in names("oatmeal", ctx(now_minutes=720))
+    """Famous Frank's is a late-night cart (22:00 onward): visible at 23:00,
+    invisible at noon. Uses a retail venue so the test holds under RETAIL_ONLY."""
+    assert "Cheese Fries" in names("cheese fries", ctx(now_minutes=1380))
+    assert "Cheese Fries" not in names("cheese fries", ctx(now_minutes=720))
 
 
 def test_light_goal_sorts_by_calories():
@@ -154,3 +155,22 @@ def test_light_goal_sorts_by_calories():
 def test_campus_scoping():
     for h in hits("*", ctx()):
         assert h["document"]["campus_id"] == "purdue"
+
+
+def test_retail_only_scope():
+    """UPlate covers dining courts natively; this product is the retail half.
+    Applied as a query-time filter so it flips via config without a reindex —
+    the dining-hall documents stay in the index either way."""
+    from app.config import get_settings
+
+    if not get_settings().retail_only:
+        pytest.skip("RETAIL_ONLY disabled")
+
+    for h in hits("*", ctx()):
+        assert h["document"]["source_type"] == "off_campus", (
+            f"dining-hall item leaked into retail-only search: {h['document']['name']}"
+        )
+
+    # The data is still there — this is scoping, not deletion.
+    total = admin_client().collections["food_items"].retrieve()["num_documents"]
+    assert total > found("*", ctx()), "retail filter removed nothing; is it applied?"
