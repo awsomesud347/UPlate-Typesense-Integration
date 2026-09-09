@@ -1,6 +1,6 @@
 services:
   typesense-test:
-    image: typesense/typesense:30.2
+    image: typesense/typesense:29.1
     ports:
       - "8109:8108"
     volumes:

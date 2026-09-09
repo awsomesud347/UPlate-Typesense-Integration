@@ -4,15 +4,25 @@ Students don't search the words on a menu board. They search "gains," "brain
 food," "the peanut butter burger." Synonyms are applied by Typesense at query
 time, so they cost nothing at index time and need no reindex to change.
 
-GOTCHA: the per-collection synonyms API (collections/{c}/synonyms) is REMOVED
-in Typesense v30+ — it 404s. v30 uses top-level SYNONYM SETS, created once and
-referenced from a search via the `synonym_sets` query parameter. Most tutorials
-and LLM training data still show the old API.
+GOTCHA: the synonyms API changed between major versions, in both directions.
+v30+ REMOVED per-collection synonyms (collections/{c}/synonyms) in favour of
+top-level synonym sets. v29 is the opposite: per-collection works, and
+/synonym_sets does not exist and 404s.
+
+We are pinned to 29.1 on purpose — v30.0-30.2 have an open NL-search regression
+that returns 0 hits (Backend_Architecture.MD §10.1) — so this module uses the
+per-collection API. The python client exposes both surfaces regardless of what
+the server supports, so a wrong call fails at runtime, not at import.
+
+Synonyms live on a concrete collection, not on an alias, so they must be
+re-registered after every blue/green swap. bootstrap.py and reindex.py both do.
 
 Multi-way (`synonyms` only): any term matches all the others.
 One-way (`root` + `synonyms`): searching the root also matches the synonyms,
 not the reverse.
 """
+
+from app.typesense.schema import COLLECTION_ALIAS
 
 SET_NAME = "uplate_slang"
 
@@ -47,7 +57,16 @@ SYNONYM_ITEMS: list[dict] = [
 ]
 
 
-def register_synonyms(client) -> int:
-    """Idempotent — upsert replaces the whole set by name. Returns item count."""
-    client.synonym_sets[SET_NAME].upsert({"items": SYNONYM_ITEMS})
+def register_synonyms(client, collection: str | None = None) -> int:
+    """Idempotent — each upsert replaces that synonym by id. Returns item count.
+
+    Defaults to whatever the `food_items` alias currently points at, so it lands
+    on the live collection after a blue/green swap.
+    """
+    if collection is None:
+        collection = client.aliases[COLLECTION_ALIAS].retrieve()["collection_name"]
+
+    for item in SYNONYM_ITEMS:
+        body = {k: v for k, v in item.items() if k != "id"}
+        client.collections[collection].synonyms.upsert(item["id"], body)
     return len(SYNONYM_ITEMS)
