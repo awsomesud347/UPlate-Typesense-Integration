@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
     campus_id: str = "purdue"
 
+    # Dev-only escape hatch so frontend work doesn't require a running Typesense.
+    # Opt-in and off by default: fixture data does NOT honor allergen exclusions,
+    # so a silent fallback would violate the safety invariant. Responses served
+    # this way are stamped in the reasoning trace.
+    use_fixtures: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

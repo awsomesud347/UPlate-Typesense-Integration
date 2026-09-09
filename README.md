@@ -56,7 +56,13 @@ npm run dev                   # http://localhost:5173
 
 `POST /api/search` — request/response shapes are defined **once**, in [`api/app/schemas/search.py`](api/app/schemas/search.py), and mirrored field-for-field in [`web/src/lib/types.ts`](web/src/lib/types.ts). Fixture responses for UI work without a running backend: [`web/src/lib/fixtures.ts`](web/src/lib/fixtures.ts).
 
-The stub backend already serves fixture data at `/api/search`, so the UI can integrate against a live endpoint from minute one.
+`/api/search` hits real Typesense. **To work without a running Typesense**, set `USE_FIXTURES=true` in `api/.env` — it serves fixture data instead. It's opt-in and off by default because fixture data does not honor allergen exclusions; every fixture response is stamped in the reasoning trace so it can't be mistaken for a real search.
+
+## Typesense v30 gotchas (cost us time — don't repeat them)
+
+- **The per-collection synonyms API is removed in v30+.** `collections/{c}/synonyms` returns 404. v30 uses top-level **synonym sets**: `client.synonym_sets[name].upsert({"items": [...]})`, referenced per-search via the `synonym_sets` query param. Most tutorials and LLM answers still show the old API. See [`app/typesense/synonyms.py`](api/app/typesense/synonyms.py).
+- **`sort_by` cannot do arithmetic.** No `protein_g / calories`. Every ratio is precomputed at ingest in [`derive.py`](api/app/ingest/derive.py) and stored as a plain numeric field.
+- **Hybrid search only happens if `embedding` is in `query_by`** alongside the text fields. Drop it and you get keyword-only search that looks fine on easy queries and silently fails every semantic one. `test_hybrid_semantic_match` exists to catch exactly that.
 
 ## The safety invariant
 
