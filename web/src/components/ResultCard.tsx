@@ -6,6 +6,7 @@ interface ResultCardProps {
   hit: Hit;
   selected?: boolean;
   onSelect?: (id: string) => void;
+  onOpenDetail?: (hit: Hit) => void;
 }
 
 const CIRCLE_DIAMETER = 72;
@@ -14,10 +15,13 @@ const CIRCLE_CENTER_OFFSET = CIRCLE_DIAMETER * (VISIBLE_FRACTION - 0.5); // shif
 const VISIBLE_WIDTH = CIRCLE_DIAMETER * VISIBLE_FRACTION;
 const CONTENT_LEFT_INSET = VISIBLE_WIDTH + 12; // visible portion + gap before text
 
-export default function ResultCard({ hit, selected, onSelect }: ResultCardProps) {
+export default function ResultCard({ hit, selected, onSelect, onOpenDetail }: ResultCardProps) {
   return (
     <button
-      onClick={() => onSelect?.(hit.id)}
+      onClick={() => {
+        onSelect?.(hit.id);
+        onOpenDetail?.(hit);
+      }}
       style={{
         position: "relative",
         display: "flex",
