@@ -17,12 +17,13 @@ const CONTENT_LEFT_INSET = VISIBLE_WIDTH + 12; // visible portion + gap before t
 
 export default function ResultCard({ hit, selected, onSelect, onOpenDetail }: ResultCardProps) {
   return (
-    <button
-      onClick={() => {
-        onSelect?.(hit.id);
-        onOpenDetail?.(hit);
-      }}
+    <div
+      onClick={() => onSelect?.(hit.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onSelect?.(hit.id)}
       style={{
+        boxSizing: "border-box", // otherwise the left padding pushes the card past 100% width, off-screen
         position: "relative",
         display: "flex",
         alignItems: "center",
@@ -94,9 +95,24 @@ export default function ResultCard({ hit, selected, onSelect, onOpenDetail }: Re
         </div>
       </div>
 
-      <span aria-hidden style={{ color: tokens.accent, fontSize: 18, paddingRight: 4 }}>
+      <button
+        aria-label={`View nutrition facts for ${hit.name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenDetail?.(hit);
+        }}
+        style={{
+          flexShrink: 0,
+          color: tokens.accent,
+          fontSize: 18,
+          padding: "4px 4px 4px 8px",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
         ›
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
