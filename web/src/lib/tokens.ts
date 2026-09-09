@@ -10,5 +10,5 @@ export const tokens = {
   accentText: "#0E0F13", // text/icon color sitting on top of the accent fill
   outline: "#2E303C",
   danger: "#D98C8C",
-  font: "Inter, system-ui, sans-serif",
+  font: "'Parkinsans', system-ui, sans-serif",
 };
