@@ -20,27 +20,31 @@ from typing import Any
 import anthropic
 
 from app.config import get_settings
+from app.typesense import nl_model
+from app.typesense.client import admin_client
 
-# Situational mappings live HERE, in one editable place, not inside prompts
-# scattered through query code.
-SITUATIONAL_HINTS: dict[str, str] = {
-    "exam / studying / focus / tired / don't crash": (
-        "sustained_energy: rank glycemic_proxy ascending and prefer moderate protein"
-    ),
-    "post-workout / recovery / gains": (
-        "high_protein: rank protein_density descending"
-    ),
-    "light / small / snack / not too heavy": "light: rank calories ascending",
-    "warm / hot / comfort / cold day": (
-        "prefer warm food using tags or is_warm; keep the user's other goal"
-    ),
-}
+# Shared with the Typesense NL model's system_prompt so the two cannot drift.
+SITUATIONAL_HINTS = nl_model.SITUATIONAL_HINTS
 
 CACHE_TTL_SECONDS = 10 * 60
 _ALLOWED_GOALS = {"none", "high_protein", "sustained_energy", "light"}
 _FORBIDDEN_FILTER_FIELDS = re.compile(
     r"\b(allergens?|allergen_verified|diet_flags?)\b", re.IGNORECASE
 )
+# Typesense ANDs a generated filter onto ours WITHOUT parentheses, and && binds
+# tighter than ||. So `exclusion && a:1 || b:2` lets the right branch escape the
+# exclusion entirely. Any disjunction in model output is therefore discarded
+# outright rather than parenthesised — we cannot know what the model meant, and
+# guessing on the allergen path is not a risk worth taking.
+_DISJUNCTION = re.compile(r"\|\|")
+
+# Generated sort_by -> our goal axis. Anything unrecognised falls back to "none".
+_SORT_TO_GOAL: dict[str, str] = {
+    "glycemic_proxy:asc": "sustained_energy",
+    "protein_density:desc": "high_protein",
+    "calories:asc": "light",
+}
+
 _HARD_CONSTRAINT_TERMS = re.compile(
     r"\b(?:"
     r"peanuts?|tree[\s-]?nuts?|nuts?|dairy|milk|eggs?|wheat|gluten|soy|"
@@ -187,19 +191,63 @@ def _tool_input(response: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     raise ValueError("Claude did not return the interpretation tool")
 
 
+def _safe_soft_filter(value: Any) -> str | None:
+    """Reduce a model-generated filter to something safe, or drop it entirely.
+
+    Fails closed on every branch. A discarded soft preference costs the user a
+    slightly worse ranking; a mishandled one costs the safety invariant.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    candidate = value.strip()
+    if _FORBIDDEN_FILTER_FIELDS.search(candidate):
+        return None  # the model has no business filtering on safety fields
+    if _DISJUNCTION.search(candidate):
+        return None  # see _DISJUNCTION — precedence hole, not a formatting nit
+    if candidate.count("(") != candidate.count(")"):
+        return None
+    return candidate
+
+
+def _interpret_via_typesense(query: str) -> Interpretation:
+    """Primary path: Typesense NL Search Models, used as a parser only."""
+    params = nl_model.parse(admin_client(), _without_hard_constraints(query.strip()))
+
+    sort_by = params.get("sort_by")
+    goal = _SORT_TO_GOAL.get(sort_by.strip(), "none") if isinstance(sort_by, str) else "none"
+
+    # GOTCHA: the model emits q:"*" when it reads a query as purely filter-shaped.
+    # A wildcard has no text to embed, so hybrid ranking silently collapses on
+    # exactly the queries worth demoing. Fall back to the user's own words.
+    generated_q = params.get("q")
+    if not isinstance(generated_q, str) or not generated_q.strip() or generated_q.strip() == "*":
+        generated_q = query.strip()
+
+    soft_filter = _safe_soft_filter(params.get("filter_by"))
+    intent = ", ".join(
+        part for part in [
+            {"sustained_energy": "steady energy, low crash risk",
+             "high_protein": "protein-forward",
+             "light": "lighter options"}.get(goal),
+            f"filtered on {soft_filter}" if soft_filter else None,
+        ] if part
+    )
+
+    return Interpretation(
+        intent=intent or "Food search",
+        soft_filter_by=soft_filter,
+        goal=goal,
+        search_terms=generated_q.strip(),
+        raw={"source": "typesense_nl", "generated_params": params},
+    )
+
+
 def _validate(data: dict[str, Any], raw: dict[str, Any], query: str) -> Interpretation:
     goal = data.get("goal", "none")
     if goal not in _ALLOWED_GOALS:
         goal = "none"
 
-    soft_filter = data.get("soft_filter_by")
-    if not isinstance(soft_filter, str) or not soft_filter.strip():
-        soft_filter = None
-    elif _FORBIDDEN_FILTER_FIELDS.search(soft_filter):
-        # Fail closed for this model-owned field. Hard constraints are assembled elsewhere.
-        soft_filter = None
-    else:
-        soft_filter = soft_filter.strip()
+    soft_filter = _safe_soft_filter(data.get("soft_filter_by"))
 
     intent = data.get("intent")
     search_terms = data.get("search_terms")
@@ -232,36 +280,51 @@ def clear_cache() -> None:
         _cache.clear()
 
 
+def _interpret_via_claude(query: str) -> Interpretation:
+    """Fallback path. Typesense NL models do not accept Anthropic as a provider,
+    so this talks to the API directly rather than through the engine."""
+    settings = get_settings()
+    response = _get_client().messages.create(
+        model=settings.anthropic_model,
+        max_tokens=500,
+        temperature=0,
+        system=_SYSTEM_PROMPT,
+        tools=[_TOOL],
+        tool_choice={"type": "tool", "name": _TOOL_NAME},
+        messages=[{"role": "user", "content": _without_hard_constraints(query.strip())}],
+    )
+    data, raw = _tool_input(response)
+    raw["source"] = "claude_fallback"
+    return _validate(data, raw, query)
+
+
 def interpret(query: str) -> Interpretation:
-    """Interpret a natural-language query, returning a keyword fallback on failure."""
-    try:
-        if not isinstance(query, str):
-            raise TypeError("query must be a string")
-        normalized = _normalize_query(query)
-        if not normalized:
-            raise ValueError("query must not be empty")
+    """Interpret a natural-language query. Never raises.
 
-        now = time.monotonic()
-        with _cache_lock:
-            cached = _cache.get(normalized)
-            if cached and cached.expires_at > now:
-                return copy.deepcopy(cached.value)
-            if cached:
-                _cache.pop(normalized, None)
+    Typesense NL Search Models first (it is a Typesense feature and the primary
+    path), Claude second, plain keyword search last. Each step down is a
+    degradation in ranking quality only — hard exclusions are assembled in
+    query_builder from UserContext and are unaffected by any of this.
+    """
+    if not isinstance(query, str) or not _normalize_query(query):
+        return _degraded(query if isinstance(query, str) else "", "query must be a non-empty string")
 
-        settings = get_settings()
-        model_query = _without_hard_constraints(query.strip())
-        response = _get_client().messages.create(
-            model=settings.anthropic_model,
-            max_tokens=500,
-            temperature=0,
-            system=_SYSTEM_PROMPT,
-            tools=[_TOOL],
-            tool_choice={"type": "tool", "name": _TOOL_NAME},
-            messages=[{"role": "user", "content": model_query}],
-        )
-        data, raw = _tool_input(response)
-        result = _validate(data, raw, query)
+    normalized = _normalize_query(query)
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _cache.get(normalized)
+        if cached and cached.expires_at > now:
+            return copy.deepcopy(cached.value)
+        if cached:
+            _cache.pop(normalized, None)
+
+    errors: list[str] = []
+    for name, path in (("typesense_nl", _interpret_via_typesense), ("claude", _interpret_via_claude)):
+        try:
+            result = path(query)
+        except Exception as exc:
+            errors.append(f"{name}: {str(exc).strip() or type(exc).__name__}")
+            continue
 
         with _cache_lock:
             _cache[normalized] = _CacheEntry(
@@ -269,6 +332,6 @@ def interpret(query: str) -> Interpretation:
                 value=copy.deepcopy(result),
             )
         return result
-    except Exception as exc:
-        # This boundary is intentional: search availability must not depend on Claude.
-        return _degraded(query if isinstance(query, str) else "", exc)
+
+    # This boundary is intentional: search availability must not depend on any LLM.
+    return _degraded(query, "; ".join(errors))

@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.ingest.pipeline import rebuild  # noqa: E402
 from app.typesense.client import admin_client  # noqa: E402
+from app.typesense.nl_model import ensure_model  # noqa: E402
 from app.typesense.synonyms import register_synonyms  # noqa: E402
 
 SEED = Path(__file__).resolve().parents[1] / "data" / "seed" / "items.json"
@@ -24,3 +25,10 @@ if __name__ == "__main__":
 
     n = register_synonyms(admin_client())
     print(f"synonyms registered: {n}")
+
+    # Non-fatal: without a key the search path degrades to keyword, which is a
+    # worse demo but a working one. Failing the whole seed here would be worse.
+    try:
+        print(f"NL search model registered: {ensure_model(admin_client())}")
+    except Exception as exc:
+        print(f"NL search model NOT registered ({exc}) - search will degrade to keyword")

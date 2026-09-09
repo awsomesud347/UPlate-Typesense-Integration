@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     typesense_port: int = 8108
     typesense_protocol: str = "http"
 
+    # Primary query understanding: Typesense NL Search Models, which orchestrate a
+    # third-party LLM. Anthropic is not a supported provider there, hence the split.
+    nl_llm_api_key: str = ""
+    nl_llm_model_name: str = "google/gemini-3.1-flash-lite"
+    nl_model_id: str = "uplate-nl"
+
+    # Fallback only, used when the Typesense NL path fails. Blank = degrade to keyword.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5-20251001"
 
