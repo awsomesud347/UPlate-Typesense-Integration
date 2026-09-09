@@ -1,4 +1,6 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { Map as MapLibreMap, Marker, type StyleSpecification } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import type { Hit } from "../lib/types";
 import { tokens } from "../lib/tokens";
 
@@ -8,113 +10,165 @@ interface ItemMapProps {
   onSelect?: (id: string) => void;
 }
 
-// SKELETON — Phase 6 replaces this with real MapLibre GL + clustering.
-// Pins are placed by hashing hit.id to a stable position so the layout doesn't
-// jump between renders; this is NOT a real geo projection.
-function pinPosition(id: string): { leftPct: number; topPct: number } {
+// Free, keyless OSM raster tiles — no API key, no billing surprise (BUILD_PLAN §2).
+const OSM_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: "raster",
+      tiles: [
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+    },
+  },
+  layers: [{ id: "osm", type: "raster", source: "osm" }],
+};
+
+// Real map, but per user's call — NOT real per-item geo. Pins keep the same
+// hashed, deterministic "simplified" positions as before, just expressed as a
+// small lng/lat offset around campus instead of a screen percentage, so they
+// behave correctly as the real map pans/zooms underneath them.
+//
+// Hashed by venue_name (not item id) so every item from the same restaurant
+// lands on the same point instead of scattering across the map. Frontend-only
+// grouping — the API contract doesn't expose a venue_id to hash on instead.
+const CENTER: [number, number] = [-86.9111, 40.4249]; // matches api.ts demoContext()
+const BASE_ZOOM = 14.5;
+const FOCUS_ZOOM = 16.5;
+
+function venueLngLat(venueName: string): [number, number] {
   let hash = 0;
-  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) & 0xffff;
-  return { leftPct: 15 + (hash % 70), topPct: 15 + ((hash >> 4) % 65) }; // 15–85 / 15–80
+  for (const ch of venueName) hash = (hash * 31 + ch.charCodeAt(0)) & 0xffff;
+  const leftPct = 15 + (hash % 70); // 15–85, same distribution as before
+  const topPct = 15 + ((hash >> 4) % 65);
+  const lng = CENTER[0] + ((leftPct - 50) / 50) * 0.012;
+  const lat = CENTER[1] - ((topPct - 50) / 50) * 0.009;
+  return [lng, lat];
 }
 
-const ZOOM = 2.2;
-// Where the selected point should land: horizontally centered, near the TOP of
-// the map area so it stays visible above the results sheet once it opens.
-const TARGET = { leftPct: 54, topPct: 12 };
-// The user's own location — fixed at the center of the (untransformed) map,
-// like any other map-space point it pans/zooms along with everything else.
-const YOU_POSITION = { leftPct: 50, topPct: 50 };
+// Marker writes its own `translate(...)` position directly onto the element's
+// style.transform on every map move/zoom — it OWNS that property. Our teardrop
+// shape needs `rotate(-45deg)` too, so it lives on a nested child instead of
+// the marker's root element; otherwise whichever of us wrote `transform` last
+// wins, and the loser's translate gets wiped, snapping the pin back to (0,0).
+function applyPinStyle(inner: HTMLDivElement, isSelected: boolean): void {
+  const size = isSelected ? 32 : 26;
+  Object.assign(inner.style, {
+    width: `${size}px`,
+    height: `${size}px`,
+    borderRadius: "50% 50% 50% 0",
+    transform: "rotate(-45deg)",
+    background: isSelected ? tokens.accent : tokens.surface,
+    border: `2px solid ${tokens.accent}`,
+    cursor: "pointer",
+  });
+}
+
+function pinElement(isSelected: boolean): HTMLDivElement {
+  const wrapper = document.createElement("div");
+  const inner = document.createElement("div");
+  applyPinStyle(inner, isSelected);
+  wrapper.appendChild(inner);
+  return wrapper;
+}
+
+function youElement(): HTMLDivElement {
+  const el = document.createElement("div");
+  Object.assign(el.style, {
+    width: "14px",
+    height: "14px",
+    borderRadius: "50%",
+    background: "#4A9DFF",
+    border: "2px solid white",
+    boxShadow: "0 0 0 6px rgba(74,157,255,0.25)",
+  });
+  return el;
+}
 
 export default function ItemMap({ hits, selectedId, onSelect }: ItemMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [transform, setTransform] = useState<{ x: number; y: number; originX: number; originY: number; scale: number }>({
-    x: 0,
-    y: 0,
-    originX: 0,
-    originY: 0,
-    scale: 1,
-  });
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const markersRef = useRef<globalThis.Map<string, Marker>>(new globalThis.Map());
 
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+  // Create the map once.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const map = new MapLibreMap({
+      container: containerRef.current,
+      style: OSM_STYLE,
+      center: CENTER,
+      zoom: BASE_ZOOM,
+      attributionControl: { compact: true },
+    });
+    mapRef.current = map;
+    new Marker({ element: youElement() }).setLngLat(CENTER).addTo(map);
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // Keep one marker per hit in sync with the current result set.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const seen = new Set<string>();
+    for (const hit of hits) {
+      seen.add(hit.id);
+      const isSelected = hit.id === selectedId;
+      const existing = markersRef.current.get(hit.id);
+      if (existing) {
+        const inner = existing.getElement().firstElementChild as HTMLDivElement | null;
+        if (inner) applyPinStyle(inner, isSelected);
+      } else {
+        const marker = new Marker({ element: pinElement(isSelected) })
+          .setLngLat(venueLngLat(hit.venue_name))
+          .addTo(map);
+        marker.getElement().addEventListener("click", () => onSelect?.(hit.id));
+        markersRef.current.set(hit.id, marker);
+      }
+    }
+    for (const [id, marker] of markersRef.current) {
+      if (!seen.has(id)) {
+        marker.remove();
+        markersRef.current.delete(id);
+      }
+    }
+  }, [hits, selectedId, onSelect]);
+
+  // Pan/zoom to the selected point, biased toward the top of the visible area
+  // (bottom padding reserves room for the results sheet below).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
     const selected = selectedId ? hits.find((h) => h.id === selectedId) : null;
+    const containerHeight = containerRef.current?.clientHeight ?? 0;
+
     if (!selected) {
-      setTransform({ x: 0, y: 0, originX: 0, originY: 0, scale: 1 });
+      map.flyTo({ center: CENTER, zoom: BASE_ZOOM, duration: 550 });
       return;
     }
-    const { width, height } = el.getBoundingClientRect();
-    const pos = pinPosition(selected.id);
-    const originX = (pos.leftPct / 100) * width;
-    const originY = (pos.topPct / 100) * height;
-    const targetX = (TARGET.leftPct / 100) * width;
-    const targetY = (TARGET.topPct / 100) * height;
-    // Scale is anchored at the point itself (transform-origin), so the point
-    // doesn't move under the scale — only the translate below moves it, to TARGET.
-    setTransform({ x: targetX - originX, y: targetY - originY, originX, originY, scale: ZOOM });
+    map.flyTo({
+      center: venueLngLat(selected.venue_name),
+      zoom: FOCUS_ZOOM,
+      padding: { top: 20, bottom: containerHeight * 0.72, left: 20, right: 20 },
+      duration: 550,
+    });
   }, [selectedId, hits]);
 
   return (
     <div ref={containerRef} style={{ position: "relative", width: "100%", height: "100%" }}>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-          transformOrigin: `${transform.originX}px ${transform.originY}px`,
-          transition: "transform 550ms cubic-bezier(.22,1,.36,1)",
-          background: `repeating-linear-gradient(45deg, ${tokens.surfaceMuted}, ${tokens.surfaceMuted} 12px, ${tokens.background} 12px, ${tokens.background} 24px)`,
-        }}
-      >
-        {/* "you are here" — fixed reference point, not selectable */}
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            left: `${YOU_POSITION.leftPct}%`,
-            top: `${YOU_POSITION.topPct}%`,
-            transform: `translate(-50%, -50%) scale(${1 / transform.scale})`,
-            width: 14,
-            height: 14,
-            borderRadius: "50%",
-            background: "#4A9DFF",
-            border: "2px solid white",
-            boxShadow: "0 0 0 6px rgba(74,157,255,0.25)",
-          }}
-        />
-
-        {hits.map((hit) => {
-          const pos = pinPosition(hit.id);
-          const isSelected = hit.id === selectedId;
-          return (
-            <button
-              key={hit.id}
-              aria-label={`${hit.name} at ${hit.venue_name}`}
-              onClick={() => onSelect?.(hit.id)}
-              style={{
-                position: "absolute",
-                left: `${pos.leftPct}%`,
-                top: `${pos.topPct}%`,
-                transform: "translate(-50%, -100%)",
-                width: isSelected ? 32 / transform.scale : 26 / transform.scale,
-                height: isSelected ? 32 / transform.scale : 26 / transform.scale,
-                borderRadius: "50% 50% 50% 0",
-                rotate: "-45deg",
-                background: isSelected ? tokens.accent : tokens.surface,
-                border: `${2 / transform.scale}px solid ${tokens.accent}`,
-                cursor: "pointer",
-                padding: 0,
-              }}
-            />
-          );
-        })}
-      </div>
-
       <span
         style={{
           position: "absolute",
           top: 8,
           left: 8,
+          zIndex: 1,
           fontSize: 10,
           color: tokens.textSecondary,
           background: tokens.surface,
@@ -123,7 +177,7 @@ export default function ItemMap({ hits, selectedId, onSelect }: ItemMapProps) {
           borderRadius: 4,
         }}
       >
-        map placeholder — Phase 6 wires MapLibre
+        pins are illustrative, not exact locations
       </span>
     </div>
   );

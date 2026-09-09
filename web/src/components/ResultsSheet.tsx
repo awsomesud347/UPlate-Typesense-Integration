@@ -96,17 +96,18 @@ export default function ResultsSheet({
         boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
         transform: `translateY(${typeof translateY === "number" ? `${translateY}px` : translateY})`,
         transition: dragPx === null ? "transform 280ms cubic-bezier(.22,1,.36,1)" : "none",
-        touchAction: "none",
       }}
     >
-      {/* drag handle — the whole header strip is grabbable, not just the bar */}
+      {/* drag handle — the whole header strip is grabbable, not just the bar.
+          touchAction:none lives ONLY here, not on the sheet, so touch scrolling
+          still works inside the list below. */}
       <div
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onClick={() => dragPx === null && setExpanded((v) => !v)}
-        style={{ cursor: "grab", paddingTop: 8, paddingBottom: 4, flexShrink: 0 }}
+        style={{ cursor: "grab", paddingTop: 8, paddingBottom: 4, flexShrink: 0, touchAction: "none" }}
       >
         <div style={{ display: "flex", justifyContent: "center" }}>
           <div
@@ -144,6 +145,8 @@ export default function ResultsSheet({
 
       <div
         style={{
+          flex: 1,
+          minHeight: 0, // lets this pane actually shrink and scroll instead of growing the sheet
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",

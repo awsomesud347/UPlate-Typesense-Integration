@@ -24,6 +24,7 @@ export default function ResultCard({ hit, selected, onSelect, onOpenDetail }: Re
       onKeyDown={(e) => e.key === "Enter" && onSelect?.(hit.id)}
       style={{
         boxSizing: "border-box", // otherwise the left padding pushes the card past 100% width, off-screen
+        flexShrink: 0, // otherwise flexbox squishes cards to fit instead of letting the list scroll
         position: "relative",
         display: "flex",
         alignItems: "center",
