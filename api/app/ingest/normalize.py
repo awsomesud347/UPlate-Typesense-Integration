@@ -7,6 +7,15 @@ AND provenance=ESTIMATED, set by the data author, on purpose.
 """
 from app.ingest import derive
 
+EXTENDED_NUTRIENTS = (
+    "sugar_g",
+    "saturated_fat_g",
+    "added_sugars_g",
+    "cholesterol_mg",
+    "calcium_mg",
+    "iron_mg",
+)
+
 
 class MissingAllergenData(ValueError):
     pass
@@ -29,4 +38,10 @@ def normalize(raw: dict) -> dict:
     doc["is_warm"] = derive.is_warm(raw["tags"])
     doc.setdefault("available_from", 0)
     doc.setdefault("available_to", 1439)
+    doc.setdefault("station", "")
+    # Extended nutrients (see NUTRIENT_FIELDS) are sparse in seed data. Defaulting
+    # to 0 keeps every document sortable on every axis. Unlike allergens, a missing
+    # micronutrient is not a safety claim, so a default is safe here.
+    for field in EXTENDED_NUTRIENTS:
+        doc.setdefault(field, 0.0)
     return doc
