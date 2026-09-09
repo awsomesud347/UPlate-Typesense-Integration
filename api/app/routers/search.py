@@ -8,6 +8,8 @@ import time
 
 from fastapi import APIRouter, HTTPException
 
+from app.config import get_settings
+from app.fixtures import fixture_response
 from app.llm.interpreter import interpret
 from app.schemas.search import (
     ClearedConstraint,
@@ -78,6 +80,9 @@ def _fails_for(doc: dict, ctx: UserContext) -> list[str]:
 def search(req: SearchRequest) -> SearchResponse:
     start = time.perf_counter()
     ctx = req.context
+
+    if get_settings().use_fixtures:
+        return fixture_response(start)
 
     interp = interpret(req.query)
     goal = interp.goal if ctx.goal == "none" and interp.goal != "none" else ctx.goal

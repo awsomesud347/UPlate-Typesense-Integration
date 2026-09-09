@@ -1,6 +1,7 @@
-"""Create the food_items collection (blue/green) and seed it.
+"""Blue/green rebuild + alias swap. Safe to run while the API serves traffic:
+the new version is built on the side and the alias flips atomically.
 
-Usage: python scripts/bootstrap.py   (from api/, with .env present and Typesense up)
+Usage: python scripts/reindex.py
 """
 import sys
 from pathlib import Path
@@ -15,12 +16,15 @@ SEED = Path(__file__).resolve().parents[1] / "data" / "seed" / "items.json"
 
 if __name__ == "__main__":
     report = rebuild(SEED)
-    print(f"food_items_v{report['version']}: {report['imported']} docs imported")
+    print(
+        f"swapped alias -> food_items_v{report['version']} "
+        f"({report['imported']} docs)"
+    )
     if report["failed"]:
-        print("FAILURES:")
+        print(f"REJECTED {len(report['failed'])} docs:")
         for f in report["failed"]:
             print(" ", f)
         sys.exit(1)
 
-    n = register_synonyms(admin_client())
-    print(f"synonyms registered: {n}")
+    # Synonyms live on the collection, so they must be re-registered after a swap.
+    print(f"synonyms registered: {register_synonyms(admin_client())}")

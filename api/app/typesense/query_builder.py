@@ -11,6 +11,7 @@ from app.constraints.exclusions import exclusion_fragments, has_hard_exclusions
 from app.constraints.goals import goal_sort
 from app.constraints.provenance import VERIFICATION_GATE
 from app.schemas.search import UserContext
+from app.typesense.synonyms import SET_NAME as SYNONYM_SET
 
 QUERY_BY = "name,description,tags,venue_name,embedding"
 
@@ -54,6 +55,7 @@ def base_search(q: str, ctx: UserContext, goal: str | None, alpha: float) -> dic
         "query_by": QUERY_BY,
         "sort_by": sort_for(ctx, goal),
         "exclude_fields": "embedding",  # always — vectors bloat every response
+        "synonym_sets": SYNONYM_SET,  # campus slang -> menu vocabulary
         "per_page": 20,
     }
     if q and q != "*":
